@@ -9,11 +9,12 @@ using namespace std;
 
 class Engine {
     int n_features;
-    int n_epochs;
+    vector<int> n_epochs;
     float lrate;
     float lambda; // regularization constant
     float avg_rating;
     string train_filename;
+    string test_filename;
 
     int n_users;
     int n_movies;
@@ -23,22 +24,31 @@ class Engine {
     vector<int> movie;
     vector<float> rating;
 
-//    vector< vector<float> > user_feature;
-//    vector< vector<float> > artist_feature;
     vector<float> bias_user;
-    unordered_map<int,float> bias_movie;
+    unordered_map<int,float> movie_average;
 
+    vector< vector<float> > user_feature;
+    vector< unordered_map<int,float> > movie_feature;
+
+    vector<float> predicted_rating_without_feature;
+
+    vector<float> real_rat;
+    vector<int> x_axis;
+    vector<float> y_axis;
 
 public:
     Engine();
     ~Engine();
-    void load_train_set(string filename);
+    void load_sets(string train_name, string test_name);
     void calculate_bias();
-    double predict_rating(int user, int artist);
-    void train_sample(int user, int artist, float rating); 
+    float predict_rating(int user_id, int movie_id, int version = 3);
+    void train_sample(int sample, vector<float> &user_vec, unordered_map<int, float> &movie_vec); 
     void train();
     void test(string test_filename, string output_filename);
-
+    void validate(int epoch, vector<float> &u, unordered_map<int, float> &m);
+    float predict_rating_temp(int user_id, int movie_id, vector<float> &u, unordered_map<int, float> &m);
+    void get_real_rat();
+    void plot();
 };
 
 

@@ -3,9 +3,23 @@
 #include <sstream>
 #include <iostream>
 #include <set>
+#include <math.h>
+#include <numeric>
 
 Engine::Engine(){
-    lrate = .1;
+    lrate = .01;
+
+    n_features = 5;
+    n_epochs.resize(n_features, 10);
+    //n_epochs[2] = 5;
+    //n_epochs[3] = 5;
+
+/*
+    n_features = 4;
+    n_epochs.resize(n_features, 50);
+    n_epochs[2] = 5;
+    n_epochs[3] = 5;
+*/
     max_id_movie = 0;
 }
 
@@ -13,10 +27,11 @@ Engine::~Engine(){
 }
 
 
-void Engine::load_train_set(string filename) {
-    train_filename = filename;
+void Engine::load_sets(string train_name, string test_name) {
+    train_filename = train_name;
+    test_filename = test_name;
     
-    ifstream train_file(filename);
+    ifstream train_file(train_filename);
     string line, user_id, movie_id, rating_str, dud;
     set<int> count_users;
     set<int> count_movies;
@@ -44,36 +59,171 @@ void Engine::calculate_bias(){
     int n_ratings = 0;
     double total_rating = 0;
 
-    unordered_map<int,int> n_ratings_user;
-    unordered_map<int,float> total_rating_user;
     unordered_map<int, int> n_ratings_movie;
     unordered_map<int,float> total_rating_movie;
+    unordered_map<int,int> n_ratings_user;
+    unordered_map<int,float> total_bias_user;
 
-    // sum the ratings
+    // get movie averages
     for (int i = 0; i < user.size(); i++) {
-        n_ratings++;
-        total_rating += rating[i];
-
-        n_ratings_user[user[i]]++;
-        total_rating_user[user[i]] += rating[i];
-
         n_ratings_movie[movie[i]]++;
         total_rating_movie[movie[i]] += rating[i];
     }
-   
-    //divide by number of ratings to get averages
-    avg_rating = total_rating / (float)n_ratings;
-
-    bias_user.resize(n_users);
-
-    for (auto it = total_rating_user.begin(); it != total_rating_user.end(); it++) {
-        bias_user[it->first] = it->second / (float)n_ratings_user[it->first] - avg_rating;
+    for (auto it = total_rating_movie.begin(); it != total_rating_movie.end(); it++) {
+        movie_average[it->first] = it->second / (float)n_ratings_movie[it->first];
     }
 
-    for (auto it2 = total_rating_movie.begin(); it2 != total_rating_movie.end(); it2++) {
-        bias_movie[it2->first] = it2->second / (float)n_ratings_movie[it2->first] - avg_rating;
+    // get user biases
+    bias_user.resize(n_users);
+    for (int i = 0; i < user.size(); i++) {
+        n_ratings_user[user[i]]++;
+        total_bias_user[user[i]] += rating[i] - movie_average[movie[i]];
+    }
+    for (auto it = total_bias_user.begin(); it != total_bias_user.end(); it++) {
+        bias_user[it->first] = it->second / (float)n_ratings_user[it->first];
     }
 }
+
+
+
+void Engine::train_sample(int sample, vector<float> &user_vec, unordered_map<int,float> &movie_vec) {
+    float error = lrate * (rating[sample] - (predicted_rating_without_feature[sample] + user_vec[user[sample]] * movie_vec[movie[sample]]) );
+    float temp = user_vec[user[sample]];
+    user_vec[user[sample]] += error * movie_vec[movie[sample]];
+    movie_vec[movie[sample]] += error * temp;
+}
+
+
+void Engine::train() {
+    // initialize to avg + bias for feature 0
+    predicted_rating_without_feature.resize(user.size());
+    for (int i = 0; i < user.size(); i++) {
+        predicted_rating_without_feature[i] = movie_average[movie[i]] + bias_user[user[i]];
+    }
+
+    cout << "starting training" << endl;
+    for (int f = 0; f < n_features; f++) {
+        cout << "Starting feature " << f << endl;
+
+        // initialize new feature vector to .1
+        vector<float> user_value;
+        user_value.resize(n_users, .1);
+
+        unordered_map<int,float> movie_value;
+        for (int i = 0; i < movie.size(); i++) {
+            movie_value[movie[i]] = .1;
+        }
+
+        // train!
+        for (int e = 0; e < n_epochs[f]; e++) {
+            for (int s = 0; s < user.size(); s++) {
+                train_sample(s, user_value, movie_value);
+            }
+
+            /*************************/
+            if (f == 4 && e % 2 <10) { 
+                validate(e, user_value, movie_value);
+            }
+            
+        }
+
+        // add this feature to the list
+        for (int i = 0; i < user.size(); i++) {
+            predicted_rating_without_feature[i] += user_value[user[i]] * movie_value[movie[i]];
+        }
+        user_feature.push_back(user_value);
+        movie_feature.push_back(movie_value);
+
+//        validate(f, user_value, movie_value);
+    }
+    cout << "Size is " << movie_feature.size() << endl;
+}
+
+
+void Engine::get_real_rat() {
+    ifstream real_file("./data/20m/true_rating.tsv");
+    string line, rat_str;
+    float rat;
+    while (getline(real_file, line)) {
+        // read a test line
+        stringstream line_stream(line);
+        line_stream >> rat_str;
+        rat = stof(rat_str);
+        real_rat.push_back(rat);
+    }
+}
+
+
+void Engine::validate(int epoch, vector<float> &u, unordered_map<int, float> &m) {
+    ifstream test_file(test_filename);
+    string line, user_id_str, movie_id_str;
+    int user_id, movie_id;
+    float predicted_rating;
+    long i = 0;
+    vector<float> sq_err;
+
+    while (getline(test_file, line)) {
+        // read a test line
+        stringstream line_stream(line);
+        line_stream >> user_id_str >> movie_id_str;
+        user_id = stoi(user_id_str);
+        movie_id = stoi(movie_id_str);
+
+        // predict the rating
+        predicted_rating = predict_rating_temp(user_id, movie_id, u, m);
+
+        // save
+        sq_err.push_back( pow(real_rat[i] - predicted_rating, 2.));
+        i++;
+    }
+    test_file.close();
+    float rmse = 0;
+    for (int i=0; i < sq_err.size(); i++) {
+        rmse += sq_err[i];
+    }
+    rmse = pow(rmse / (float)sq_err.size(), .5);
+
+    x_axis.push_back(epoch);
+    y_axis.push_back(rmse);
+}
+
+
+float Engine::predict_rating_temp(int user_id, int movie_id, vector<float> &u, unordered_map<int, float> &m) {
+    float avg = movie_average[movie_id];
+    float bias = bias_user[user_id];
+    float learned = 0;
+    for (int i = 0; i < user_feature.size(); i++) {
+        learned += user_feature[i][user_id] * movie_feature[i][movie_id];
+    }
+    learned += u[user_id] * m[movie_id];
+    return avg + bias + learned;
+}
+
+
+void Engine::plot() {
+    ofstream plot_file("plot_data.dat");
+    for (int i = 0; i < x_axis.size(); i++) {
+        plot_file << x_axis[i] << " " << y_axis[i] << endl;
+    }
+}
+
+
+
+
+float Engine::predict_rating(int user_id, int movie_id, int version) {
+    if (version != 3) {
+        return 3.;
+    }
+    float avg = movie_average[movie_id];
+    float bias = bias_user[user_id];
+    float learned = 0;
+    for (int f = 0; f < user_feature.size(); f++) {
+        learned += user_feature[f][user_id] * movie_feature[f][movie_id];
+    }
+    return avg + bias + learned;
+}
+
+
 
 void Engine::test(string test_filename, string output_filename) {
     ifstream test_file(test_filename);
@@ -90,8 +240,7 @@ void Engine::test(string test_filename, string output_filename) {
         movie_id = stoi(movie_id_str);
 
         // predict the rating
-        predicted_rating = avg_rating + bias_user[user_id] + bias_movie[movie_id];
-        //predicted_rating = 3.5;
+        predicted_rating = predict_rating(user_id, movie_id);
 
         // write the predicted rating
         predicted_rating_file << predicted_rating << '\n';
