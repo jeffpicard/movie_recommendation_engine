@@ -19,7 +19,7 @@ int main() {
     Engine eng = Engine();
 
     eng.load_sets(train_set_filename, test_set_filename);
-    eng.get_real_rat();
+    eng.get_real_rate();
     eng.calculate_bias();
     eng.train();
     eng.plot();

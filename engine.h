@@ -32,7 +32,7 @@ class Engine {
 
     vector<float> predicted_rating_without_feature;
 
-    vector<float> real_rat;
+    vector<float> real_rate;
     vector<int> x_axis;
     vector<float> y_axis;
 
@@ -47,7 +47,7 @@ public:
     void test(string test_filename, string output_filename);
     void validate(int epoch, vector<float> &u, unordered_map<int, float> &m);
     float predict_rating_temp(int user_id, int movie_id, vector<float> &u, unordered_map<int, float> &m);
-    void get_real_rat();
+    void get_real_rate();
     void plot();
 };
 
